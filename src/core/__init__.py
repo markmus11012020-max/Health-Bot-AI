@@ -1,0 +1,1 @@
+"""Core domain: pure logic, no I/O frameworks."""
