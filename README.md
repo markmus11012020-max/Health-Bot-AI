@@ -2,7 +2,7 @@
 
 > ИИ-ассистент отдела продаж компании **OCX** (продукты для здоровья и бережного очищения организма).
 > MVP на Streamlit: анонимизирует ПДн по 152-ФЗ, генерирует ответ клиенту + подсказку по допродажам менеджеру.
-> Поддерживает fallback между AI-провайдерами.
+> **Тестовая сборка:** активен только один AI-провайдер за раз (выбор в сайдбаре).
 
 ---
 
@@ -11,7 +11,7 @@
 - 🧠 **Генерация ответов** на вопросы клиентов по базе продуктов OCX
 - 💼 **Подсказки допродаж** для менеджера (увеличение чека, акции)
 - 🔒 **Соответствие 152-ФЗ** — все имена, телефоны, e-mail и адреса маскируются перед отправкой в LLM
-- 🔁 **Отказоустойчивость** — primary `AITunnel` → fallback `YandexGPT`
+- 🎛 **Переключаемый провайдер** — в сайдбаре выбирается один AI (`AITunnel` по умолчанию / `YandexGPT`). Цепочка fallback отключена: активен только выбранный
 - 📋 **Копирование ответа** в букопиру через `pyperclip`
 - 🧱 **Модульная OOP-архитектура** — чистое разделение UI / бизнес-логики / интеграций
 
@@ -39,17 +39,17 @@ Health-Bot-AI/
 │   │
 │   ├── ai/                         # Адаптеры AI-провайдеров
 │   │   ├── base.py                 # ABC: AIClient, ChatRequest, ChatResult
-│   │   ├── aitunnel_client.py      # Primary провайдер
-│   │   ├── yandex_client.py        # Fallback провайдер
-│   │   └── orchestrator.py         # Cross-provider fallback
+│   │   ├── aitunnel_client.py      # AITunnel-провайдер (OpenAI-compatible)
+│   │   ├── yandex_client.py        # YandexGPT-провайдер (OpenAI-compatible)
+│   │   └── orchestrator.py         # Запускает список провайдеров по очереди
 │   │
 │   ├── services/                   # Use-cases
 │   │   ├── consultation_service.py # Бизнес-логика консультации
-│   │   └── provider_factory.py     # Composition root / DI
+│   │   └── provider_factory.py     # Composition root / DI + реестр провайдеров
 │   │
 │   └── ui/                         # Презентационный слой Streamlit
 │       ├── styles.py               # CSS + footer
-│       └── components.py           # Переиспользуемые виджеты
+│       └── components.py           # Переиспользуемые виджеты + селектор провайдера
 │
 └── tests/                          # Юнит-тесты
     ├── test_anonymizer.py
@@ -109,10 +109,13 @@ streamlit run app.py
 | ----------------------- | ----------------------------------- | ----------------------------- |
 | `AITUNNEL_API_KEY`      | API-ключ основного провайдера       | —                             |
 | `AITUNNEL_BASE_URL`     | Endpoint AITunnel                   | `https://api.aitunnel.ru/v1`  |
-| `AITUNNEL_MODEL`        | Модель AITunnel (на выбор: MiniMax-M3, Gemini, GPT) | `MiniMax-M3`        |
+| `AITUNNEL_MODEL`        | Модель AITunnel (на выбор: `minimax-m3`, Gemini, GPT) | `minimax-m3`     |
+| `YANDEX_GPT_URL`        | Endpoint YandexGPT (native REST)    | `https://llm.api.cloud.yandex.net/foundationModels/v1/completion` |
 | `YANDEX_API_KEY`        | API-ключ YandexGPT                  | —                             |
+| `YANDEX_IAM_TOKEN`      | IAM-токен (приоритет над API-ключом)| —                             |
 | `YANDEX_FOLDER_ID`      | Folder ID Yandex Cloud              | —                             |
-| `YANDEX_MODEL`          | Модель YandexGPT                    | `yandexgpt-lite`              |
+| `YANDEX_GPT_MODEL`      | Модель YandexGPT                    | `yandexgpt-lite`              |
+| `YANDEX_TIMEOUT_S`      | Таймаут YandexGPT (сек)             | `120`                         |
 | `TEMPERATURE`           | Температура генерации               | `0.2`                         |
 | `MAX_TOKENS`            | Лимит токенов                       | `800`                         |
 | `REQUEST_TIMEOUT`       | Таймаут HTTP-запроса (сек)          | `30`                          |
@@ -163,14 +166,12 @@ class MyProvider(AIClient):
 # src/services/provider_factory.py
 from src.ai.my_provider import MyProvider
 
-AIOrchestrator(providers=[
-    AITunnelClient(settings),
-    MyProvider(settings),    # ← добавлено
-    YandexGPTClient(settings),
-])
+PROVIDER_REGISTRY["my"] = MyProvider   # ← добавлено
 ```
 
-UI / бизнес-логика менять **не нужно**.
+Чтобы провайдер появился в сайдбаре — добавьте человекочитаемую метку в
+`_PROVIDER_LABELS` в `src/ui/components.py`. UI-логику самого селектора менять
+**не нужно**.
 
 ---
 
