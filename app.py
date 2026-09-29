@@ -14,6 +14,7 @@ from src.ui.components import (
     render_footer,
     render_header,
     render_provider_badge,
+    render_provider_selector,
     render_response,
     render_sidebar,
     render_technical_info,
@@ -46,9 +47,10 @@ if "request_count" not in st.session_state:
 
 render_header(
     title=f"{settings.app_icon} Health-Bot-AI",
-    subtitle="Панель ИИ-ассистента OCX | Демонстрация MVP",
+    subtitle="Панель ИИ-ассистента OCX | Демонстрация MVP | Тестовый режим",
 )
-render_sidebar(st.session_state.request_count)
+active_provider = render_provider_selector()
+render_sidebar(st.session_state.request_count, active_provider)
 
 # ---------------------------------------------------------------------------
 # Input form
@@ -92,7 +94,7 @@ if process_button:
     if not crm_context or not client_message:
         st.error("⚠️ Пожалуйста, заполните оба поля!")
     else:
-        service = build_consultation_service(settings)
+        service = build_consultation_service(settings, provider_name=active_provider)
         with st.spinner("🤖 AI обрабатывает запрос..."):
             outcome = service.run(
                 ConsultationInput(

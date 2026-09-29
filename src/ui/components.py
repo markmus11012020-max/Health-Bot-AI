@@ -6,6 +6,7 @@ from typing import Iterable
 import streamlit as st
 
 from src.core.response_parser import ParsedResponse
+from src.services.provider_factory import DEFAULT_PROVIDER, PROVIDER_REGISTRY
 from src.ui.styles import FOOTER_HTML
 
 
@@ -19,7 +20,34 @@ def render_header(*, title: str, subtitle: str) -> None:
     )
 
 
-def render_sidebar(request_count: int) -> None:
+_PROVIDER_LABELS = {
+    "aitunnel": "🟢 AITunnel",
+    "yandex": "🟡 YandexGPT",
+}
+
+
+def render_provider_selector() -> str:
+    """Render a sidebar radio for choosing the active AI provider.
+
+    Returns the registry key (e.g. ``"aitunnel"``).
+    Persists the choice in ``st.session_state`` so reruns keep it stable.
+    """
+    with st.sidebar:
+        st.markdown("### 🔧 Провайдер AI")
+        st.caption("⚠️ Тестовый режим: активен только один провайдер")
+        options = list(PROVIDER_REGISTRY.keys())
+        default_index = options.index(DEFAULT_PROVIDER) if DEFAULT_PROVIDER in options else 0
+        choice = st.radio(
+            "Выберите провайдера:",
+            options=options,
+            format_func=lambda key: _PROVIDER_LABELS.get(key, key),
+            index=default_index,
+            key="provider_choice",
+        )
+        return choice
+
+
+def render_sidebar(request_count: int, active_provider: str) -> None:
     with st.sidebar:
         st.markdown("### 📋 Инструкция")
         st.markdown(
@@ -29,8 +57,9 @@ def render_sidebar(request_count: int) -> None:
             "**4.** Скопируйте ответ для клиента"
         )
         st.markdown("---")
-        st.markdown("### 🔧 Провайдеры AI")
-        st.markdown("- **Основной:** AITunnel\n- **Fallback:** YandexGPT")
+        st.markdown("### 🔧 Провайдер AI")
+        label = _PROVIDER_LABELS.get(active_provider, active_provider)
+        st.markdown(f"**Активный:** {label}")
         st.markdown("---")
         st.markdown("### 📊 Статистика сессии")
         st.metric("Запросов обработано", request_count)
