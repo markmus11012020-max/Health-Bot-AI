@@ -109,7 +109,7 @@ streamlit run app.py
 | ----------------------- | ----------------------------------- | ----------------------------- |
 | `AITUNNEL_API_KEY`      | API-ключ основного провайдера       | —                             |
 | `AITUNNEL_BASE_URL`     | Endpoint AITunnel                   | `https://api.aitunnel.ru/v1`  |
-| `AITUNNEL_MODEL`        | Модель AITunnel                     | `gpt-3.5-turbo`               |
+| `AITUNNEL_MODEL`        | Модель AITunnel (на выбор: MiniMax-M3, Gemini, GPT) | `MiniMax-M3`        |
 | `YANDEX_API_KEY`        | API-ключ YandexGPT                  | —                             |
 | `YANDEX_FOLDER_ID`      | Folder ID Yandex Cloud              | —                             |
 | `YANDEX_MODEL`          | Модель YandexGPT                    | `yandexgpt-lite`              |
@@ -176,5 +176,5 @@ UI / бизнес-логика менять **не нужно**.
 
 ## 📜 Лицензия
 
-MIT © 2024 OCX / Health-Bot-AI Contributors.
+MIT © 2026 OCX / Health-Bot-AI Contributors.
 Демонстрационный MVP для собеседования.
