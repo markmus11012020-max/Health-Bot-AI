@@ -59,6 +59,11 @@ class Settings:
     )
     app_icon: str = field(default_factory=lambda: os.getenv("APP_ICON", "🏥"))
 
+    # A/B-промпт: standard | expert | warm
+    prompt_variant: str = field(
+        default_factory=lambda: os.getenv("PROMPT_VARIANT", "standard")
+    )
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Generator
 
 
 @dataclass(frozen=True)
@@ -41,3 +42,11 @@ class AIClient(ABC):
     def chat(self, request: ChatRequest) -> ChatResult:  # pragma: no cover - contract
         """Send a chat request and return the model's text reply."""
         raise NotImplementedError
+
+    def stream(self, request: ChatRequest) -> Generator[str, None, None]:  # noqa: D401
+        """Optional streaming variant. Default falls back to non-streaming chat.
+
+        Providers are encouraged to override this for better UX on slow models.
+        """
+        result = self.chat(request)
+        yield result.content

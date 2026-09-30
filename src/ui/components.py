@@ -5,6 +5,8 @@ from typing import Iterable
 
 import streamlit as st
 
+from config.prompts import list_variants
+from config.settings import Settings
 from src.core.response_parser import ParsedResponse
 from src.services.provider_factory import DEFAULT_PROVIDER, PROVIDER_REGISTRY
 from src.ui.styles import FOOTER_HTML
@@ -25,13 +27,15 @@ _PROVIDER_LABELS = {
     "yandex": "🟡 YandexGPT",
 }
 
+_VARIANT_LABELS = {
+    "standard": "💚 Standard — базовый дружелюбный",
+    "expert": "🔬 Expert — аргументированный, клинический",
+    "warm": "💛 Warm — тёплый, миссия OCX",
+}
+
 
 def render_provider_selector() -> str:
-    """Render a sidebar radio for choosing the active AI provider.
-
-    Returns the registry key (e.g. ``"aitunnel"``).
-    Persists the choice in ``st.session_state`` so reruns keep it stable.
-    """
+    """Render a sidebar radio for choosing the active AI provider."""
     with st.sidebar:
         st.markdown("### 🔧 Провайдер AI")
         st.caption("⚠️ Тестовый режим: активен только один провайдер")
@@ -47,7 +51,54 @@ def render_provider_selector() -> str:
         return choice
 
 
-def render_sidebar(request_count: int, active_provider: str) -> None:
+def render_advanced_settings(settings: Settings) -> dict:
+    """Сайдбар: расширенные параметры генерации (перекрывают .env на время сессии)."""
+    with st.sidebar:
+        st.markdown("---")
+        with st.expander("⚙️ Расширенные параметры", expanded=False):
+            temperature = st.slider(
+                "Temperature",
+                min_value=0.0,
+                max_value=1.0,
+                value=float(settings.temperature),
+                step=0.05,
+                help="0 = строго по БЗ, 1 = креативнее. По умолчанию 0.2.",
+                key="adv_temperature",
+            )
+            max_tokens = st.slider(
+                "Max tokens",
+                min_value=200,
+                max_value=2000,
+                value=int(settings.max_tokens),
+                step=100,
+                key="adv_max_tokens",
+            )
+            variants = list_variants()
+            current_variant = st.session_state.get("adv_variant", settings.prompt_variant)
+            if current_variant not in variants:
+                current_variant = variants[0]
+            variant = st.selectbox(
+                "Вариант промпта (A/B)",
+                options=variants,
+                index=variants.index(current_variant),
+                format_func=lambda k: _VARIANT_LABELS.get(k, k),
+                key="adv_variant",
+            )
+            use_stream = st.checkbox(
+                "⚡ Стриминг (мгновенный отклик)",
+                value=True,
+                key="adv_stream",
+                help="Показывать токены по мере генерации. Снимайте, если провайдер не поддерживает стрим.",
+            )
+        return {
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "variant": variant,
+            "stream": use_stream,
+        }
+
+
+def render_sidebar(request_count: int, active_provider: str, cache_size: int) -> None:
     with st.sidebar:
         st.markdown("### 📋 Инструкция")
         st.markdown(
@@ -62,24 +113,34 @@ def render_sidebar(request_count: int, active_provider: str) -> None:
         st.markdown(f"**Активный:** {label}")
         st.markdown("---")
         st.markdown("### 📊 Статистика сессии")
-        st.metric("Запросов обработано", request_count)
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Запросов", request_count)
+        with col2:
+            st.metric("Кэш", cache_size)
 
 
-def render_response(parsed: ParsedResponse) -> None:
-    """Display client answer + manager tip + copy button."""
+def _safe_copy_to_clipboard(text: str, *, success_message: str) -> None:
+    try:
+        import pyperclip
+
+        pyperclip.copy(text)
+        st.toast(success_message)
+    except Exception as exc:  # noqa: BLE001
+        st.warning(f"Не удалось скопировать: {exc}")
+
+
+def render_response(parsed: ParsedResponse, *, history_key: str | None = None) -> None:
+    """Показать ответ + кнопки копирования + (опц.) добавить в историю сессии."""
     st.markdown("---")
     st.markdown("### 💬 Ответ клиенту")
 
     col_copy, _ = st.columns([1, 4])
     with col_copy:
-        if st.button("📋 Копировать ответ", key="copy_client"):
-            try:
-                import pyperclip
-
-                pyperclip.copy(parsed.client_answer)
-                st.toast("✓ Ответ скопирован!")
-            except Exception as exc:  # noqa: BLE001
-                st.warning(f"Не удалось скопировать: {exc}")
+        if st.button("📋 Копировать ответ", key=f"copy_client_{history_key or 'main'}"):
+            _safe_copy_to_clipboard(
+                parsed.client_answer, success_message="✓ Ответ скопирован!"
+            )
 
     st.info(parsed.client_answer)
 
@@ -89,6 +150,57 @@ def render_response(parsed: ParsedResponse) -> None:
         st.info("💡 " + parsed.manager_tip)
     else:
         st.success(parsed.manager_tip)
+
+    col_copy_mgr, _ = st.columns([1, 4])
+    with col_copy_mgr:
+        if st.button(
+            "📋 Копировать подсказку", key=f"copy_manager_{history_key or 'main'}"
+        ):
+            _safe_copy_to_clipboard(
+                parsed.manager_tip,
+                success_message="✓ Подсказка скопирована!",
+            )
+
+
+def render_streaming_response(
+    placeholder_client, placeholder_manager, parsed: ParsedResponse
+) -> None:
+    """Финальный рендер после стриминга (когда текст уже собран и распарсен)."""
+    placeholder_client.markdown("### 💬 Ответ клиенту")
+    placeholder_client.info(parsed.client_answer)
+    placeholder_manager.markdown("### 💼 Подсказка по допродажам (для менеджера)")
+    if "Допродажа не требуется" in parsed.manager_tip:
+        placeholder_manager.info("💡 " + parsed.manager_tip)
+    else:
+        placeholder_manager.success(parsed.manager_tip)
+
+
+def render_history(history: list[dict]) -> None:
+    """Свернутая история прошлых обращений в текущей сессии."""
+    if not history:
+        return
+    st.markdown("---")
+    st.markdown(f"### 🕓 История сессии ({len(history)})")
+    for idx, entry in enumerate(reversed(history[-10:])):  # последние 10
+        label = (
+            f"#{entry['#']} · {entry['provider']} · "
+            f"{entry['client_message'][:60]}{'…' if len(entry['client_message']) > 60 else ''}"
+        )
+        with st.expander(label, expanded=False):
+            st.markdown("**Сообщение клиента:**")
+            st.text(entry["client_message"])
+            st.markdown("**Контекст AmoCRM:**")
+            st.text(entry["crm_context"])
+            st.markdown("---")
+            st.markdown("**💬 Ответ клиенту:**")
+            st.info(entry["client_answer"])
+            st.markdown("**💼 Подсказка менеджеру:**")
+            st.success(entry["manager_tip"])
+            st.caption(
+                f"⏱ {entry['latency_ms']} мс · "
+                f"📊 {entry['response_chars']} символов · "
+                f"{'🟢 кэш' if entry['cache_hit'] else '🔵 AI'}"
+            )
 
 
 def render_technical_info(*, provider: str, anonymized: str, raw: str) -> None:
@@ -106,5 +218,4 @@ def render_footer() -> None:
 
 
 def render_provider_badge(provider: str) -> str:
-    """Color-code provider badges."""
     return "🟢 " + provider if "AITunnel" in provider else "🟡 " + provider

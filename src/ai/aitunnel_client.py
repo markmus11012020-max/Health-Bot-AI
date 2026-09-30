@@ -1,6 +1,8 @@
 """AITunnel provider — OpenAI-compatible API."""
 from __future__ import annotations
 
+from typing import Generator
+
 from openai import OpenAI
 
 from config.settings import Settings
@@ -34,3 +36,20 @@ class AITunnelClient(AIClient):
             provider=self.name,
             model=self._settings.aitunnel_model,
         )
+
+    def stream(self, request: ChatRequest) -> Generator[str, None, None]:
+        messages = [{"role": m.role, "content": m.content} for m in request.to_messages()]
+        stream = self._client.chat.completions.create(
+            model=self._settings.aitunnel_model,
+            messages=messages,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens,
+            stream=True,
+        )
+        for chunk in stream:
+            try:
+                delta = chunk.choices[0].delta.content
+            except (AttributeError, IndexError):
+                delta = None
+            if delta:
+                yield delta

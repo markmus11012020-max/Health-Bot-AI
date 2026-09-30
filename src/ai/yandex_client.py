@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Generator
 
 from openai import OpenAI
 
@@ -70,3 +71,20 @@ class YandexGPTClient(AIClient):
             provider=self.name,
             model=self._model_uri,
         )
+
+    def stream(self, request: ChatRequest) -> Generator[str, None, None]:
+        messages = [{"role": m.role, "content": m.content} for m in request.to_messages()]
+        stream = self._client.chat.completions.create(
+            model=self._model_uri,
+            messages=messages,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens,
+            stream=True,
+        )
+        for chunk in stream:
+            try:
+                delta = chunk.choices[0].delta.content
+            except (AttributeError, IndexError):
+                delta = None
+            if delta:
+                yield delta
