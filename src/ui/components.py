@@ -219,3 +219,60 @@ def render_footer() -> None:
 
 def render_provider_badge(provider: str) -> str:
     return "🟢 " + provider if "AITunnel" in provider else "🟡 " + provider
+
+
+# ---------------------------------------------------------------------------
+# Form actions
+# ---------------------------------------------------------------------------
+
+# Ключи session_state, которые должны быть сброшены при "Очистить форму".
+# Имена совпадают с `key=` у соответствующих виджетов в app.py,
+# чтобы корректно обнулить и сами поля ввода, и любые транзитные результаты.
+_FORM_STATE_KEYS: tuple[str, ...] = (
+    "crm_context",
+    "client_message",
+    "last_outcome",
+    "last_raw_response",
+    "last_anonymized",
+    "last_provider",
+)
+
+
+def render_action_buttons(*, disabled: bool) -> tuple[bool, bool]:
+    """Кнопки действий: «Обработать запрос» + «Очистить форму» (две колонки).
+
+    Возвращает кортеж (process_clicked, clear_clicked) — флаги нажатия
+    в текущем rerun.
+    """
+    col_process, col_clear = st.columns(2)
+    with col_process:
+        process_clicked = st.button(
+            "🚀 Обработать запрос",
+            type="primary",
+            use_container_width=True,
+            disabled=disabled,
+            key="action_process",
+        )
+    with col_clear:
+        clear_clicked = st.button(
+            "🧹 Очистить форму",
+            use_container_width=True,
+            key="action_clear",
+            help="Сбросить поля ввода, результат генерации и технический лог",
+        )
+    return process_clicked, clear_clicked
+
+
+def reset_form_state(extra_keys: Iterable[str] = ()) -> None:
+    """Удалить ключи формы из session_state и принудительно перезагрузить UI.
+
+    Удаление ключей (а не присвоение "") гарантирует, что виджеты
+    с этими `key=` пересоздадутся с пустыми значениями при следующем rerun.
+    `st.rerun()` стирает со страницы старый ответ AI, историю ошибок
+    и технический лог.
+    """
+    for key in (*_FORM_STATE_KEYS, *extra_keys):
+        st.session_state.pop(key, None)
+    # Лёгкий тост — пользователь увидит подтверждение сразу после rerun.
+    st.toast("🧹 Форма очищена", icon="✅")
+    st.rerun()

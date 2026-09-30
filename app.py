@@ -15,6 +15,7 @@ from src.services.consultation_service import (
 )
 from src.services.provider_factory import build_consultation_service
 from src.ui.components import (
+    render_action_buttons,
     render_advanced_settings,
     render_footer,
     render_header,
@@ -25,6 +26,7 @@ from src.ui.components import (
     render_sidebar,
     render_streaming_response,
     render_technical_info,
+    reset_form_state,
 )
 from src.ui.styles import CUSTOM_CSS
 
@@ -78,6 +80,7 @@ crm_context = st.text_area(
     "Интересуется доставкой в Самару.",
     height=100,
     help="Вставьте информацию о сделке из AmoCRM: кто клиент, что заказывает, бюджет, комментарии",
+    key="crm_context",
 )
 client_message = st.text_area(
     "Сообщение от клиента",
@@ -85,20 +88,21 @@ client_message = st.text_area(
     "И не будет ли слабости во время очищения?",
     height=100,
     help="Введите сообщение или вопрос клиента",
+    key="client_message",
 )
 
 # ---------------------------------------------------------------------------
-# Action button
+# Action buttons (process + clear)
 # ---------------------------------------------------------------------------
 
-_, col_mid, _ = st.columns([1, 2, 1])
-with col_mid:
-    process_button = st.button(
-        "🚀 Обработать запрос",
-        type="primary",
-        use_container_width=True,
-        disabled=not (crm_context and client_message),
-    )
+process_button, clear_button = render_action_buttons(
+    disabled=not (crm_context and client_message),
+)
+
+# «Очистить форму» проверяем ДО «Обработать запрос» — иначе при одновременном
+# нажатии (теоретически возможно в одном rerun) мог бы сработать и запрос.
+if clear_button:
+    reset_form_state()
 
 # ---------------------------------------------------------------------------
 # Request handling
