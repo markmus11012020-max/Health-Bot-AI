@@ -1,11 +1,20 @@
-"""Parse the two-block structured response emitted by the LLM."""
+"""Parse the structured LLM response.
+
+Primary contract is JSON.  The legacy two-block format is still supported so
+existing prompts, cached responses and integrations keep working.
+"""
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
+import re
+from dataclasses import dataclass, field
+from typing import Any
 
 CLIENT_BLOCK_START = "=== БЛОК ДЛЯ КЛИЕНТА ==="
 MANAGER_BLOCK_START = "=== БЛОК ДЛЯ МЕНЕДЖЕРА (ВНУТРЕННИЙ) ==="
 NO_UPSELL_HINT = "Допродажа не требуется"
+
+_JSON_FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -15,18 +24,38 @@ class ParsedResponse:
     client_answer: str
     manager_tip: str
     raw: str
+    citations: tuple[str, ...] = field(default_factory=tuple)
+    confidence: float = 0.8
+    needs_upsell_value: bool | None = None
 
     @property
     def needs_upsell(self) -> bool:
-        return NO_UPSELL_HINT not in self.manager_tip
+        if self.needs_upsell_value is not None:
+            return self.needs_upsell_value
+        return NO_UPSELL_HINT.lower() not in self.manager_tip.lower()
+
+    def to_text(self) -> str:
+        """Serialise back to the legacy two-block format (cache/DB/UI safe)."""
+        return (
+            f"{CLIENT_BLOCK_START}\n{self.client_answer.strip()}\n\n"
+            f"{MANAGER_BLOCK_START}\n{self.manager_tip.strip()}"
+        )
 
 
 class ResponseParser:
-    """Stateless parser for the two-block LLM contract."""
+    """Stateless parser for JSON and legacy two-block responses."""
 
     def parse(self, raw: str) -> ParsedResponse:
-        if not raw:
+        if not raw or not raw.strip():
             return ParsedResponse("", "", "")
+
+        text = raw.strip()
+        if text.startswith("```"):
+            text = _JSON_FENCE.sub("", text).strip()
+
+        parsed_json = self._try_json(text)
+        if parsed_json is not None:
+            return parsed_json
 
         if CLIENT_BLOCK_START in raw and MANAGER_BLOCK_START in raw:
             client_answer = (
@@ -46,12 +75,53 @@ class ResponseParser:
 
     def extract_copy_text(self, raw: str) -> str:
         """Pull just the client block — used for clipboard copy."""
-        if CLIENT_BLOCK_START not in raw:
-            return raw.strip()
+        return self.parse(raw).client_answer
+
+    @staticmethod
+    def _try_json(text: str) -> ParsedResponse | None:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            return None
+        candidate = text[start : end + 1]
         try:
-            return raw.split(CLIENT_BLOCK_START, 1)[1].split(MANAGER_BLOCK_START, 1)[0].strip()
-        except IndexError:
-            return raw.strip()
+            payload: Any = json.loads(candidate)
+        except (json.JSONDecodeError, TypeError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+
+        client = payload.get("client_answer")
+        manager = payload.get("manager_tip")
+        if not isinstance(client, str) or not isinstance(manager, str):
+            return None
+
+        citations_raw = payload.get("citations", [])
+        citations: tuple[str, ...]
+        if isinstance(citations_raw, list):
+            citations = tuple(str(item).strip() for item in citations_raw if str(item).strip())
+        else:
+            citations = ()
+
+        try:
+            confidence = float(payload.get("confidence", 0.8))
+        except (TypeError, ValueError):
+            confidence = 0.8
+        confidence = min(1.0, max(0.0, confidence))
+
+        needs_upsell_raw = payload.get("needs_upsell")
+        needs_upsell_value = (
+            needs_upsell_raw if isinstance(needs_upsell_raw, bool) else None
+        )
+
+        return ParsedResponse(
+            client_answer=client.strip(),
+            manager_tip=manager.strip(),
+            raw=text,
+            citations=citations,
+            confidence=confidence,
+            needs_upsell_value=needs_upsell_value,
+        )
 
 
 # Module-level facade.

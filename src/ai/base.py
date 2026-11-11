@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Generator
 from dataclasses import dataclass
-from typing import Generator
 
 
 @dataclass(frozen=True)
@@ -31,12 +31,23 @@ class ChatResult:
     content: str
     provider: str
     model: str
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+
+    @property
+    def total_tokens(self) -> int:
+        return self.prompt_tokens + self.completion_tokens
 
 
 class AIClient(ABC):
     """Provider-agnostic chat interface."""
 
     name: str = "abstract"
+
+    @property
+    def model_name(self) -> str:
+        """Human-readable model identifier for cache/audit metadata."""
+        return ""
 
     @abstractmethod
     def chat(self, request: ChatRequest) -> ChatResult:  # pragma: no cover - contract

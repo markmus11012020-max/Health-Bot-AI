@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Generator
+from collections.abc import Generator
+from typing import Any
 
 from openai import OpenAI
 
@@ -34,6 +35,10 @@ class YandexGPTClient(AIClient):
             max_retries=settings.max_retries,
         )
 
+    @property
+    def model_name(self) -> str:
+        return self._model_uri
+
     @staticmethod
     def _resolve_auth(settings: Settings) -> str:
         """IAM-token has priority over API-key when both are configured."""
@@ -56,24 +61,34 @@ class YandexGPTClient(AIClient):
                 "YANDEX_FOLDER_ID is empty — request will likely fail with 404"
             )
             return model
+        # Yandex model URIs normally include a version segment.
+        if not model.endswith("/latest") and model.count("/") == 0:
+            model = f"{model}/latest"
         return f"gpt://{folder}/{model}"
 
     def chat(self, request: ChatRequest) -> ChatResult:
-        messages = [{"role": m.role, "content": m.content} for m in request.to_messages()]
+        messages: Any = [
+            {"role": m.role, "content": m.content} for m in request.to_messages()
+        ]
         response = self._client.chat.completions.create(
             model=self._model_uri,
             messages=messages,
             temperature=request.temperature,
             max_tokens=request.max_tokens,
         )
+        usage = getattr(response, "usage", None)
         return ChatResult(
             content=response.choices[0].message.content or "",
             provider=self.name,
             model=self._model_uri,
+            prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
+            completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
         )
 
     def stream(self, request: ChatRequest) -> Generator[str, None, None]:
-        messages = [{"role": m.role, "content": m.content} for m in request.to_messages()]
+        messages: Any = [
+            {"role": m.role, "content": m.content} for m in request.to_messages()
+        ]
         stream = self._client.chat.completions.create(
             model=self._model_uri,
             messages=messages,
@@ -83,7 +98,8 @@ class YandexGPTClient(AIClient):
         )
         for chunk in stream:
             try:
-                delta = chunk.choices[0].delta.content
+                chunk_any: Any = chunk
+                delta = chunk_any.choices[0].delta.content
             except (AttributeError, IndexError):
                 delta = None
             if delta:

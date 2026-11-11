@@ -1,9 +1,9 @@
-"""Cross-provider orchestrator with fallback semantics."""
+"""Cross-provider orchestrator with safe fallback semantics."""
 from __future__ import annotations
 
 import logging
+from collections.abc import Generator, Sequence
 from dataclasses import dataclass
-from typing import Generator, Sequence
 
 from src.ai.base import AIClient, ChatRequest, ChatResult
 
@@ -23,8 +23,9 @@ class OrchestrationResult:
 class AIOrchestrator:
     """Tries providers in order, returns the first successful response.
 
-    Failures from earlier providers are logged and surfaced in `error`
-    so the UI can show diagnostic information.
+    Streaming rule: fallback is allowed only **before the first token**.  If a
+    provider fails after emitting tokens, the request fails instead of mixing
+    two different answers.
     """
 
     def __init__(self, providers: Sequence[AIClient]) -> None:
@@ -64,30 +65,39 @@ class AIOrchestrator:
     def stream(
         self, request: ChatRequest, *, anonymized: str = ""
     ) -> Generator[str, None, tuple[str, ChatResult | None, str | None]]:
-        """Стриминг с fallback по провайдерам.
+        """Stream tokens with fallback only before the first token.
 
-        Yields строки-токены. После исчерпания генератора вызов next() вернёт
-        кортеж ``(provider_name, chat_result_or_none, error_or_none)``.
-        Схема 'finally-result' позволяет UI собрать полный текст из токенов
-        и получить метаданные для логирования/кэша.
+        After exhaustion, ``next()`` raises ``StopIteration`` whose value is
+        ``(provider_name, chat_result_or_none, error_or_none)``.
         """
         errors: list[str] = []
         for provider in self._providers:
+            buffer: list[str] = []
             try:
                 logger.info("Streaming via provider: %s", provider.name)
-                buffer: list[str] = []
                 for token in provider.stream(request):
                     buffer.append(token)
                     yield token
                 full = "".join(buffer)
                 return (
                     provider.name,
-                    ChatResult(content=full, provider=provider.name, model=""),
+                    ChatResult(
+                        content=full,
+                        provider=provider.name,
+                        model=getattr(provider, "model_name", ""),
+                    ),
                     None,
                 )
             except Exception as exc:  # noqa: BLE001
                 msg = f"{provider.name}: {type(exc).__name__}: {exc}"
                 logger.warning("Stream provider failed — %s", msg)
+                if buffer:
+                    # Never continue with another provider after partial output.
+                    return (
+                        provider.name,
+                        None,
+                        f"{msg}; partial response discarded ({len(buffer)} chunks)",
+                    )
                 errors.append(msg)
                 continue
 
