@@ -78,6 +78,28 @@ class ResponseParserTests(unittest.TestCase):
         )
         self.assertFalse(parsed.needs_upsell)
 
+    def test_salvages_truncated_json(self) -> None:
+        raw = (
+            '{"client_answer": "Олег, спасибо! Доставка 300 руб. '
+            'Не является медицинской рекомендацией.", "confidence": 0.8'
+        )
+        parsed = self.parser.parse(raw)
+        self.assertEqual(
+            parsed.client_answer,
+            "Олег, спасибо! Доставка 300 руб. Не является медицинской рекомендацией.",
+        )
+        self.assertNotIn('"client_answer"', parsed.client_answer)
+        self.assertIn("не сформирована", parsed.manager_tip)
+
+    def test_salvages_json_with_unescaped_quotes(self) -> None:
+        raw = (
+            '{"client_answer": "Ответ с "кавычками" внутри", '
+            '"manager_tip": "Совет"}'
+        )
+        parsed = self.parser.parse(raw)
+        self.assertIn("Ответ", parsed.client_answer)
+        self.assertNotIn('"client_answer"', parsed.client_answer)
+
     def test_to_text_round_trip(self) -> None:
         parsed = self.parser.parse(
             '{"client_answer":"Ответ","manager_tip":"Совет","needs_upsell":true}'

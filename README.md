@@ -25,6 +25,8 @@
 - 🔑 **API-безопасность**: API key, admin key, rate limit, idempotency
 - 📚 **RAG-lite**: версионированная база знаний, лексический retrieval,
   цитаты в ответе
+- 🧩 **Устойчивый разбор ответа**: JSON, обрезанный JSON и legacy two-block;
+  детерминированный upsell-fallback, если модель не вернула блок менеджера
 - 🧪 **Тесты**: unit/integration, lint, typecheck, CI
 - 🐳 **Docker Compose**: PostgreSQL + Redis + API + UI
 
@@ -164,7 +166,7 @@ docker compose up --build -d
 | `LOG_LEVEL` | Уровень логов | `INFO` |
 | `AITUNNEL_API_KEY` | API-ключ AITunnel | — |
 | `AITUNNEL_BASE_URL` | Endpoint AITunnel | `https://api.aitunnel.ru/v1` |
-| `AITUNNEL_MODEL` | Модель AITunnel | `minimax-m3` |
+| `AITUNNEL_MODEL` | Модель AITunnel | `deepseek-v4.1-flash-1017` |
 | `YANDEX_GPT_URL` | OpenAI-совместимый endpoint YandexGPT | `https://llm.api.cloud.yandex.net/v1` |
 | `YANDEX_API_KEY` | API-ключ YandexGPT | — |
 | `YANDEX_IAM_TOKEN` | IAM-токен (приоритет выше API-ключа) | — |
@@ -172,8 +174,8 @@ docker compose up --build -d
 | `YANDEX_GPT_MODEL` | Модель YandexGPT | `yandexgpt-lite` |
 | `YANDEX_TIMEOUT_S` | Таймаут YandexGPT | `120` |
 | `TEMPERATURE` | Температура генерации | `0.2` |
-| `MAX_TOKENS` | Лимит токенов | `800` |
-| `REQUEST_TIMEOUT` | Таймаут HTTP | `30` |
+| `MAX_TOKENS` | Лимит токенов | `1600` |
+| `REQUEST_TIMEOUT` | Таймаут HTTP | `60` |
 | `MAX_RETRIES` | Число ретраев | `2` |
 | `ENABLE_FALLBACK` | Fallback между провайдерами | `true` |
 | `KB_PATH` | Путь к базе знаний | `knowledge_base.txt` |
@@ -221,7 +223,7 @@ curl -X POST http://localhost:8080/v1/consult ^
   "confidence": 0.88,
   "safety_flags": [],
   "provider": "AITunnel",
-  "model": "minimax-m3",
+  "model": "deepseek-v4.1-flash-1017",
   "cache_hit": false,
   "response_chars": 542,
   "usage": {"prompt_tokens": 1200, "completion_tokens": 180}

@@ -17,6 +17,10 @@ from typing import Protocol
 
 logger = logging.getLogger(__name__)
 
+# Bump when sanitization/parsing/business rules change in a way that makes old
+# cached answers unsafe or misleading.
+CACHE_SCHEMA_VERSION = "2026-11-11-2"
+
 
 @dataclass(frozen=True)
 class CacheEntry:
@@ -60,8 +64,9 @@ class ResponseCache:
     ) -> str:
         """SHA-256 of every factor that can change the answer."""
         payload = (
-            f"{anonymized_input}|{prompt_variant}|{temperature}|{max_tokens}|"
-            f"{provider_name}|{model_name}|{kb_version}|{prompt_version}"
+            f"{CACHE_SCHEMA_VERSION}|{anonymized_input}|{prompt_variant}|"
+            f"{temperature}|{max_tokens}|{provider_name}|{model_name}|"
+            f"{kb_version}|{prompt_version}"
         )
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 

@@ -15,6 +15,8 @@ MANAGER_BLOCK_START = "=== БЛОК ДЛЯ МЕНЕДЖЕРА (ВНУТРЕНН�
 NO_UPSELL_HINT = "Допродажа не требуется"
 
 _JSON_FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
+_PARTIAL_NEEDS_RE = re.compile(r'"needs_upsell"\s*:\s*(true|false)', re.IGNORECASE)
+_PARTIAL_CITATIONS_RE = re.compile(r'"citations"\s*:\s*\[(.*?)\]', re.DOTALL)
 
 
 @dataclass(frozen=True)
@@ -56,6 +58,12 @@ class ResponseParser:
         parsed_json = self._try_json(text)
         if parsed_json is not None:
             return parsed_json
+
+        # A reasoning model may hit max_tokens in the middle of JSON.  Extract
+        # the fields we already have instead of showing raw JSON to the user.
+        partial_json = self._try_partial_json(text)
+        if partial_json is not None:
+            return partial_json
 
         if CLIENT_BLOCK_START in raw and MANAGER_BLOCK_START in raw:
             client_answer = (
@@ -122,6 +130,68 @@ class ResponseParser:
             confidence=confidence,
             needs_upsell_value=needs_upsell_value,
         )
+
+    def _try_partial_json(self, text: str) -> ParsedResponse | None:
+        """Salvage a JSON object truncated by max_tokens or malformed quotes."""
+        if '"client_answer"' not in text:
+            return None
+        client = self._extract_string(text, "client_answer")
+        if not client:
+            return None
+
+        manager = self._extract_string(text, "manager_tip") or ""
+        needs_match = _PARTIAL_NEEDS_RE.search(text)
+        needs_value = (
+            needs_match.group(1).lower() == "true" if needs_match else None
+        )
+
+        citations: tuple[str, ...] = ()
+        citations_match = _PARTIAL_CITATIONS_RE.search(text)
+        if citations_match:
+            citations = tuple(
+                item.strip()
+                for item in re.findall(r'"([^"]+)"', citations_match.group(1))
+                if item.strip()
+            )
+
+        return ParsedResponse(
+            client_answer=client.strip(),
+            manager_tip=(
+                manager.strip()
+                or "Подсказка по допродажам не сформирована."
+            ),
+            raw=text,
+            citations=citations,
+            needs_upsell_value=needs_value,
+        )
+
+    @staticmethod
+    def _extract_string(text: str, field: str) -> str | None:
+        # Proper JSON string, including escaped quotes and newlines.
+        proper = re.compile(
+            rf'"{re.escape(field)}"\s*:\s*"((?:\\.|[^"\\])*)"', re.DOTALL
+        )
+        match = proper.search(text)
+        if match:
+            raw = match.group(1)
+            try:
+                return str(json.loads('"' + raw + '"'))
+            except json.JSONDecodeError:
+                return (
+                    raw.replace('\\"', '"')
+                    .replace("\\n", "\n")
+                    .replace("\\r", "\r")
+                    .replace("\\t", "\t")
+                )
+
+        # Truncated string without a closing quote: take the rest of the text.
+        truncated = re.compile(
+            rf'"{re.escape(field)}"\s*:\s*"([^"]*)', re.DOTALL
+        )
+        match = truncated.search(text)
+        if match:
+            return match.group(1).strip()
+        return None
 
 
 # Module-level facade.

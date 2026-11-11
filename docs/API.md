@@ -62,7 +62,7 @@ X-Request-ID: optional
   "confidence": 0.86,
   "safety_flags": [],
   "provider": "AITunnel",
-  "model": "minimax-m3",
+  "model": "deepseek-v4.1-flash-1017",
   "cache_hit": false,
   "response_chars": 542,
   "usage": {

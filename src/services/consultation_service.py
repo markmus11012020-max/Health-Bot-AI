@@ -16,7 +16,7 @@ import logging
 import time
 import uuid
 from collections.abc import Generator, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from config.prompts import build_system_prompt, prompt_fingerprint
 from config.settings import Settings
@@ -25,6 +25,7 @@ from src.ai.base import ChatResult
 from src.ai.orchestrator import AIOrchestrator, OrchestrationResult
 from src.core.anonymizer import PIIAnonymizer
 from src.core.audit_log import AuditLogger, NullAuditLogger
+from src.core.business_rules import UpsellAdvisor, UpsellRecommendation
 from src.core.knowledge_base import KnowledgeBase
 from src.core.response_cache import CacheBackend, CacheEntry, ResponseCache
 from src.core.response_parser import ParsedResponse, ResponseParser
@@ -69,11 +70,13 @@ class ConsultationService:
         safety: SafetyGuard | None = None,
         audit: AuditLogger | None = None,
         parser: ResponseParser | None = None,
+        upsell: UpsellAdvisor | None = None,
     ) -> None:
         self._settings = settings
         self._orchestrator = orchestrator
         self._kb = knowledge_base
         self._anonymizer = anonymizer
+        self._upsell = upsell or UpsellAdvisor()
         self._cache = cache or ResponseCache(
             maxsize=self._int_setting("cache_maxsize", 256),
             ttl_seconds=self._int_setting("cache_ttl_seconds", 86400),
@@ -189,8 +192,24 @@ class ConsultationService:
         input_verdict: SafetyVerdict,
         *,
         fallback_citations: tuple[str, ...] = (),
+        fallback_upsell: UpsellRecommendation | None = None,
     ) -> tuple[ParsedResponse, str, tuple[str, ...]]:
         parsed = self._parser.parse(raw)
+        manager_lower = (parsed.manager_tip or "").lower()
+        if (
+            fallback_upsell is not None
+            and fallback_upsell.needs_upsell
+            and (
+                not parsed.manager_tip
+                or "не сформирована" in manager_lower
+                or "допродажа не требуется" in manager_lower
+            )
+        ):
+            parsed = replace(
+                parsed,
+                manager_tip=fallback_upsell.text,
+                needs_upsell_value=fallback_upsell.needs_upsell,
+            )
         if self._bool_setting("guardrails_enabled", True):
             parsed, output_flags = self._safety.sanitize_output(
                 parsed, input_verdict=input_verdict
@@ -317,6 +336,9 @@ class ConsultationService:
         request, kb_citations = self._build_request(
             anonymized, anonymized_crm, anonymized_msg
         )
+        fallback_upsell = self._upsell.recommend(
+            crm_context=anonymized_crm, client_message=anonymized_msg
+        )
         provider_name, model_name = self._provider_signature()
         cache_key = self._cache_key(
             anonymized, provider_name=provider_name, model_name=model_name
@@ -338,7 +360,10 @@ class ConsultationService:
 
         if outcome.success and outcome.result is not None:
             parsed, safe_content, safety_flags = self._finalize(
-                outcome.result.content, verdict, fallback_citations=kb_citations
+                outcome.result.content,
+                verdict,
+                fallback_citations=kb_citations,
+                fallback_upsell=fallback_upsell,
             )
             result = ChatResult(
                 content=safe_content,
@@ -440,6 +465,9 @@ class ConsultationService:
         request, kb_citations = self._build_request(
             anonymized, anonymized_crm, anonymized_msg
         )
+        fallback_upsell = self._upsell.recommend(
+            crm_context=anonymized_crm, client_message=anonymized_msg
+        )
         provider_name, model_name = self._provider_signature()
         cache_key = self._cache_key(
             anonymized, provider_name=provider_name, model_name=model_name
@@ -469,7 +497,10 @@ class ConsultationService:
             provider, chat_result, error = stop.value
             if chat_result is not None:
                 parsed, safe_content, safety_flags = self._finalize(
-                    chat_result.content, verdict, fallback_citations=kb_citations
+                    chat_result.content,
+                    verdict,
+                    fallback_citations=kb_citations,
+                    fallback_upsell=fallback_upsell,
                 )
                 result = ChatResult(
                     content=safe_content,

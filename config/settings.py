@@ -75,7 +75,7 @@ class Settings:
         default_factory=lambda: os.getenv("AITUNNEL_BASE_URL", "https://api.aitunnel.ru/v1")
     )
     aitunnel_model: str = field(
-        default_factory=lambda: os.getenv("AITUNNEL_MODEL", "minimax-m3")
+        default_factory=lambda: os.getenv("AITUNNEL_MODEL", "deepseek-v4.1-flash-1017")
     )
 
     # YandexGPT
@@ -92,9 +92,9 @@ class Settings:
 
     # Generation
     temperature: float = field(default_factory=lambda: _env_float("TEMPERATURE", 0.2))
-    max_tokens: int = field(default_factory=lambda: _env_int("MAX_TOKENS", 800))
+    max_tokens: int = field(default_factory=lambda: _env_int("MAX_TOKENS", 1600))
     request_timeout: float = field(
-        default_factory=lambda: _env_float("REQUEST_TIMEOUT", 30.0)
+        default_factory=lambda: _env_float("REQUEST_TIMEOUT", 60.0)
     )
     max_retries: int = field(default_factory=lambda: _env_int("MAX_RETRIES", 2))
     enable_fallback: bool = field(default_factory=lambda: _env_bool("ENABLE_FALLBACK", True))

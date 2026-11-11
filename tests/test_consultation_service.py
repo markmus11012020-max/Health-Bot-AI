@@ -162,6 +162,26 @@ class ConsultationServiceSafetyTests(unittest.TestCase):
         svc.run(payload, use_cache=False)
         self.assertEqual(orch.calls, 2)  # type: ignore[attr-defined]
 
+    def test_truncated_json_gets_upsell_fallback(self) -> None:
+        orch = _CaptureOrchestrator()
+        orch.next_content = (
+            '{"client_answer": "Доставка 300 руб. '
+            'Не является медицинской рекомендацией.", "confidence": 0.8'
+        )
+        svc = self._service(orch)
+        outcome = svc.run(
+            ConsultationInput(
+                crm_context="Олег оформляет комплекс за 4500 руб.",
+                client_message="Сколько доставка в Новосибирск?",
+            )
+        )
+        self.assertTrue(outcome.result.success)
+        content = outcome.result.result.content  # type: ignore[union-attr]
+        self.assertNotIn('"client_answer"', content)
+        self.assertIn("Витамин-Буст", content)
+        self.assertIn("6 180", content)
+        self.assertIn("БЛОК ДЛЯ МЕНЕДЖЕРА", content)
+
     def test_citations_are_returned(self) -> None:
         svc = self._service(_CaptureOrchestrator())
         outcome = svc.run(

@@ -29,10 +29,18 @@ class AnonymizationResult:
 # Russian first names commonly seen in B2B retail data.
 _DEFAULT_NAMES = (
     "Мария Ивановна|Мария|Машей|Машенька|Маша|"
-    "Иван Иванович|Ваня|Ванек|"
+    "Иван Иванович|Иван|Ваня|Ванек|"
     "Алексей Сергеевич|Алексей|Леша|"
     "Елена Петровна|Елена|Lena|"
-    "Ольга Николаевна|Ольга|Olga"
+    "Ольга Николаевна|Ольга|Olga|"
+    "Олег|Олега|Олегу|Олегом|"
+    "Александр|Александра|Андрей|Анна|Артём|Артем|"
+    "Борис|Вадим|Валентина|Валерий|Василий|Вера|Виктор|Виктория|"
+    "Владимир|Владислав|Всеволод|Галина|Дарья|Денис|Дмитрий|"
+    "Евгений|Евгения|Егор|Екатерина|Зоя|Игорь|Ирина|Кирилл|"
+    "Ксения|Людмила|Максим|Маргарита|Михаил|Наталья|Наталия|"
+    "Никита|Николай|Павел|Пётр|Петр|Полина|Роман|Светлана|"
+    "Сергей|Станислав|Татьяна|Тимофей|Юлия|Яна"
 )
 
 _NAME_EXPLICIT_PATTERN = re.compile(rf"\b({_DEFAULT_NAMES})\b", re.IGNORECASE)
@@ -136,9 +144,9 @@ class PIIAnonymizer:
             if n:
                 counts[key] = counts.get(key, 0) + n
 
-        # Order matters: phones/cards before generic long-number patterns.
-        replace(self._name_explicit, self.PLACEHOLDER_NAME, "name")
+        # Generic full-name first (Имя Фамилия), then single names from the list.
         replace(self._name_generic, self.PLACEHOLDER_NAME, "name")
+        replace(self._name_explicit, self.PLACEHOLDER_NAME, "name")
         for pattern in self._phones:
             replace(pattern, self.PLACEHOLDER_PHONE, "phone")
         replace(self._email, self.PLACEHOLDER_EMAIL, "email")

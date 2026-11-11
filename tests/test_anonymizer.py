@@ -74,6 +74,11 @@ class PIIAnonymizerTests(unittest.TestCase):
         text = "О-комплекс Детокс стоит 4500 руб."
         self.assertEqual(self.anon.anonymize(text), text)
 
+    def test_masks_single_name_oleg(self) -> None:
+        out = self.anon.anonymize("Олег оформляет комплекс за 4500 руб.")
+        self.assertIn("[Клиент]", out)
+        self.assertNotIn("Олег", out)
+
 
 if __name__ == "__main__":
     unittest.main()
