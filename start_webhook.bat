@@ -1,7 +1,7 @@
 @echo off
 REM ============================================================================
-REM Health-Bot-AI — Webhook-сервер (FastAPI)
-REM Запускает FastAPI webhook на порту 8080 для интеграции с AmoCRM и др.
+REM Health-Bot-AI — Webhook/API server (FastAPI)
+REM Production MVP: no --reload; use docker-compose for production.
 REM ============================================================================
 setlocal
 
@@ -15,12 +15,21 @@ if not exist "%VENV_PY%" (
     exit /b 1
 )
 
+if not exist "%PROJECT_DIR%.env" (
+    if exist "%PROJECT_DIR%.env.example" (
+        echo WARNING: .env missing, copying from .env.example ^(placeholder keys^)
+        copy /y "%PROJECT_DIR%.env.example" "%PROJECT_DIR%.env" >nul
+    )
+)
+
 echo.
-echo Starting Health-Bot-AI webhook on http://localhost:8080
+echo Starting Health-Bot-AI API on http://localhost:8080
 echo Docs:  http://localhost:8080/docs
+echo Health: http://localhost:8080/health
+echo Ready:  http://localhost:8080/ready
 echo.
 
-title Health-Bot-AI (Webhook)
-"%VENV_PY%" -m uvicorn src.api.webhook:app --host 0.0.0.0 --port 8080 --reload
+title Health-Bot-AI (API)
+"%VENV_PY%" -m uvicorn src.api.webhook:app --host 0.0.0.0 --port 8080
 
 endlocal

@@ -1,7 +1,7 @@
 """Reusable Streamlit rendering helpers."""
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 import streamlit as st
 
@@ -20,6 +20,10 @@ def render_header(*, title: str, subtitle: str) -> None:
         "персональные данные анонимизируются перед отправкой в LLM</div>",
         unsafe_allow_html=True,
     )
+    st.caption(
+        "Ответы носят информационный характер и не являются медицинской "
+        "рекомендацией. Менеджер проверяет ответ перед отправкой клиенту."
+    )
 
 
 _PROVIDER_LABELS = {
@@ -33,14 +37,23 @@ _VARIANT_LABELS = {
     "warm": "💛 Warm — тёплый, миссия OCX",
 }
 
+_SAFETY_MESSAGES = {
+    "prompt_injection_blocked": "🛑 Запрос заблокирован: обнаружена попытка prompt injection.",
+    "prompt_injection_suspected": "⚠️ В запросе есть подозрительные инструкции; ответ проверен guardrails.",
+    "medical_red_flag": "🩺 Обнаружен медицинский red flag: рекомендуется консультация врача.",
+    "medical_claim_softened": "✏️ Формулировки ответа смягчены правилами медицинской безопасности.",
+}
+
 
 def render_provider_selector() -> str:
     """Render a sidebar radio for choosing the active AI provider."""
     with st.sidebar:
         st.markdown("### 🔧 Провайдер AI")
-        st.caption("⚠️ Тестовый режим: активен только один провайдер")
+        st.caption("Production MVP: основной провайдер + резервный fallback")
         options = list(PROVIDER_REGISTRY.keys())
-        default_index = options.index(DEFAULT_PROVIDER) if DEFAULT_PROVIDER in options else 0
+        default_index = (
+            options.index(DEFAULT_PROVIDER) if DEFAULT_PROVIDER in options else 0
+        )
         choice = st.radio(
             "Выберите провайдера:",
             options=options,
@@ -52,7 +65,7 @@ def render_provider_selector() -> str:
 
 
 def render_advanced_settings(settings: Settings) -> dict:
-    """Сайдбар: расширенные параметры генерации (перекрывают .env на время сессии)."""
+    """Сайдбар: расширенные параметры генерации (перекрывают .env на сессию)."""
     with st.sidebar:
         st.markdown("---")
         with st.expander("⚙️ Расширенные параметры", expanded=False):
@@ -88,7 +101,7 @@ def render_advanced_settings(settings: Settings) -> dict:
                 "⚡ Стриминг (мгновенный отклик)",
                 value=True,
                 key="adv_stream",
-                help="Показывать токены по мере генерации. Снимайте, если провайдер не поддерживает стрим.",
+                help="Показывать токены по мере генерации. Снимите, если провайдер не поддерживает стрим.",
             )
         return {
             "temperature": temperature,
@@ -98,26 +111,33 @@ def render_advanced_settings(settings: Settings) -> dict:
         }
 
 
-def render_sidebar(request_count: int, active_provider: str, cache_size: int) -> None:
+def render_sidebar(
+    request_count: int, active_provider: str, cache_stats: dict | None = None
+) -> None:
+    cache_stats = cache_stats or {}
     with st.sidebar:
         st.markdown("### 📋 Инструкция")
         st.markdown(
             "**1.** Заполните контекст сделки из AmoCRM\n\n"
             "**2.** Введите сообщение клиента\n\n"
             "**3.** Нажмите «Обработать запрос»\n\n"
-            "**4.** Скопируйте ответ для клиента"
+            "**4.** Проверьте ответ и скопируйте его клиенту"
         )
         st.markdown("---")
         st.markdown("### 🔧 Провайдер AI")
-        label = _PROVIDER_LABELS.get(active_provider, active_provider)
-        st.markdown(f"**Активный:** {label}")
+        st.markdown(f"**Активный:** {_PROVIDER_LABELS.get(active_provider, active_provider)}")
         st.markdown("---")
         st.markdown("### 📊 Статистика сессии")
         col1, col2 = st.columns(2)
         with col1:
             st.metric("Запросов", request_count)
         with col2:
-            st.metric("Кэш", cache_size)
+            st.metric("Кэш", int(cache_stats.get("size", 0)))
+        if cache_stats:
+            st.caption(
+                f"TTL: {cache_stats.get('ttl_seconds', 0)} с · "
+                f"hit rate: {float(cache_stats.get('hit_rate', 0)):.0%}"
+            )
 
 
 def _safe_copy_to_clipboard(text: str, *, success_message: str) -> None:
@@ -130,8 +150,21 @@ def _safe_copy_to_clipboard(text: str, *, success_message: str) -> None:
         st.warning(f"Не удалось скопировать: {exc}")
 
 
-def render_response(parsed: ParsedResponse, *, history_key: str | None = None) -> None:
-    """Показать ответ + кнопки копирования + (опц.) добавить в историю сессии."""
+def _render_safety_flags(flags: Iterable[str]) -> None:
+    for flag in dict.fromkeys(flags):
+        message = _SAFETY_MESSAGES.get(flag)
+        if message:
+            st.warning(message)
+
+
+def render_response(
+    parsed: ParsedResponse,
+    *,
+    history_key: str | None = None,
+    citations: Iterable[str] = (),
+    safety_flags: Iterable[str] = (),
+) -> None:
+    """Показать ответ, источники, safety-флаги и кнопки копирования."""
     st.markdown("---")
     st.markdown("### 💬 Ответ клиенту")
 
@@ -143,10 +176,15 @@ def render_response(parsed: ParsedResponse, *, history_key: str | None = None) -
             )
 
     st.info(parsed.client_answer)
+    _render_safety_flags(safety_flags)
+
+    sources = tuple(dict.fromkeys(citations))
+    if sources:
+        st.caption("📚 Источники: " + "; ".join(sources))
 
     st.markdown("---")
     st.markdown("### 💼 Подсказка по допродажам (для менеджера)")
-    if "Допродажа не требуется" in parsed.manager_tip:
+    if not parsed.needs_upsell:
         st.info("💡 " + parsed.manager_tip)
     else:
         st.success(parsed.manager_tip)
@@ -165,11 +203,11 @@ def render_response(parsed: ParsedResponse, *, history_key: str | None = None) -
 def render_streaming_response(
     placeholder_client, placeholder_manager, parsed: ParsedResponse
 ) -> None:
-    """Финальный рендер после стриминга (когда текст уже собран и распарсен)."""
+    """Финальный рендер после стриминга (совместимость со старым API)."""
     placeholder_client.markdown("### 💬 Ответ клиенту")
     placeholder_client.info(parsed.client_answer)
     placeholder_manager.markdown("### 💼 Подсказка по допродажам (для менеджера)")
-    if "Допродажа не требуется" in parsed.manager_tip:
+    if not parsed.needs_upsell:
         placeholder_manager.info("💡 " + parsed.manager_tip)
     else:
         placeholder_manager.success(parsed.manager_tip)
@@ -181,10 +219,11 @@ def render_history(history: list[dict]) -> None:
         return
     st.markdown("---")
     st.markdown(f"### 🕓 История сессии ({len(history)})")
-    for idx, entry in enumerate(reversed(history[-10:])):  # последние 10
+    for entry in reversed(history[-10:]):  # последние 10
         label = (
             f"#{entry['#']} · {entry['provider']} · "
-            f"{entry['client_message'][:60]}{'…' if len(entry['client_message']) > 60 else ''}"
+            f"{entry['client_message'][:60]}"
+            f"{'…' if len(entry['client_message']) > 60 else ''}"
         )
         with st.expander(label, expanded=False):
             st.markdown("**Сообщение клиента:**")
@@ -196,6 +235,8 @@ def render_history(history: list[dict]) -> None:
             st.info(entry["client_answer"])
             st.markdown("**💼 Подсказка менеджеру:**")
             st.success(entry["manager_tip"])
+            if entry.get("citations"):
+                st.caption("📚 Источники: " + "; ".join(entry["citations"]))
             st.caption(
                 f"⏱ {entry['latency_ms']} мс · "
                 f"📊 {entry['response_chars']} символов · "
@@ -203,12 +244,27 @@ def render_history(history: list[dict]) -> None:
             )
 
 
-def render_technical_info(*, provider: str, anonymized: str, raw: str) -> None:
+def render_technical_info(
+    *,
+    provider: str,
+    model: str,
+    anonymized: str,
+    raw: str,
+    citations: Iterable[str] = (),
+    safety_flags: Iterable[str] = (),
+    latency_ms: int = 0,
+) -> None:
     with st.expander("🔍 Техническая информация (для разработчика)"):
         st.markdown("**Анонимизированные данные (152-ФЗ):**")
         st.code(anonymized, language=None)
         st.markdown(f"**Провайдер:** {provider}")
-        st.markdown("**Полный ответ AI:**")
+        st.markdown(f"**Модель:** `{model}`")
+        st.markdown(f"**Latency:** {latency_ms} мс")
+        if citations:
+            st.markdown("**Источники:** " + "; ".join(dict.fromkeys(citations)))
+        if safety_flags:
+            st.markdown("**Safety flags:** " + ", ".join(dict.fromkeys(safety_flags)))
+        st.markdown("**Полный ответ AI (после guardrails):**")
         st.code(raw, language=None)
 
 
@@ -225,9 +281,6 @@ def render_provider_badge(provider: str) -> str:
 # Form actions
 # ---------------------------------------------------------------------------
 
-# Ключи session_state, которые должны быть сброшены при "Очистить форму".
-# Имена совпадают с `key=` у соответствующих виджетов в app.py,
-# чтобы корректно обнулить и сами поля ввода, и любые транзитные результаты.
 _FORM_STATE_KEYS: tuple[str, ...] = (
     "crm_context",
     "client_message",
@@ -239,11 +292,7 @@ _FORM_STATE_KEYS: tuple[str, ...] = (
 
 
 def render_action_buttons(*, disabled: bool) -> tuple[bool, bool]:
-    """Кнопки действий: «Обработать запрос» + «Очистить форму» (две колонки).
-
-    Возвращает кортеж (process_clicked, clear_clicked) — флаги нажатия
-    в текущем rerun.
-    """
+    """Кнопки действий: «Обработать запрос» + «Очистить форму»."""
     col_process, col_clear = st.columns(2)
     with col_process:
         process_clicked = st.button(
@@ -264,15 +313,8 @@ def render_action_buttons(*, disabled: bool) -> tuple[bool, bool]:
 
 
 def reset_form_state(extra_keys: Iterable[str] = ()) -> None:
-    """Удалить ключи формы из session_state и принудительно перезагрузить UI.
-
-    Удаление ключей (а не присвоение "") гарантирует, что виджеты
-    с этими `key=` пересоздадутся с пустыми значениями при следующем rerun.
-    `st.rerun()` стирает со страницы старый ответ AI, историю ошибок
-    и технический лог.
-    """
+    """Удалить ключи формы из session_state и принудительно перезагрузить UI."""
     for key in (*_FORM_STATE_KEYS, *extra_keys):
         st.session_state.pop(key, None)
-    # Лёгкий тост — пользователь увидит подтверждение сразу после rerun.
     st.toast("🧹 Форма очищена", icon="✅")
     st.rerun()
