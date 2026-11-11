@@ -36,3 +36,12 @@ logs/
 dist/
 build/
 *.spec
+
+# Runtime data
+data/
+*.db
+*.sqlite3
+*.sqlite3-journal
+.coverage
+coverage.xml
+htmlcov/

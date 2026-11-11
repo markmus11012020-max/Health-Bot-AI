@@ -1,85 +1,90 @@
 # 🏥 Health-Bot-AI
 
-> ИИ-ассистент отдела продаж компании **OCX** (продукты для здоровья и бережного очищения организма).
-> MVP на Streamlit + Webhook API: анонимизирует ПДн по 152-ФЗ, генерирует ответ клиенту + подсказку по допродажам менеджеру.
-> **Тестовая сборка:** активен только один AI-провайдер за раз (выбор в сайдбаре).
+> ИИ-ассистент отдела продаж компании **OCX** (продукты для здоровья и
+> бережного очищения организма).
+>
+> Production MVP: Streamlit UI + FastAPI API. Анонимизирует ПДн по 152-ФЗ,
+> генерирует ответ клиенту и внутреннюю подсказку менеджеру по допродажам.
+
+[![CI](https://github.com/markmus11012020-max/Health-Bot-AI/actions/workflows/ci.yml/badge.svg)](https://github.com/markmus11012020-max/Health-Bot-AI/actions/workflows/ci.yml)
 
 ---
 
 ## ✨ Возможности
 
-- 🧠 **Генерация ответов** на вопросы клиентов по базе продуктов OCX
-- 💼 **Подсказки допродаж** для менеджера (увеличение чека, акции)
-- 🔒 **Соответствие 152-ФЗ** — все имена, телефоны, e-mail и адреса маскируются перед отправкой в LLM
-- 🎛 **Переключаемый провайдер** — в сайдбаре выбирается один AI (`AITunnel` по умолчанию / `YandexGPT`)
-- ⚡ **Streaming-ответ** — токены по мере генерации (мгновенный UX)
-- 🧪 **A/B-варианты промптов** — `standard` / `expert` / `warm` (выбор в сайдбаре или .env)
-- 💾 **LRU-кэш ответов** — повторные запросы мгновенно, без обращения к API
-- 🌐 **FastAPI Webhook** — эндпоинт `POST /consult` для интеграции с внешними CRM
-- ⚙️ **Расширенные параметры** — temperature, max_tokens, вариант промпта, стрим (в сайдбаре)
-- 📋 **Копирование обоих блоков** — кнопки «📋 Копировать ответ» + «📋 Копировать подсказку»
-- 🧹 **Очистить форму** — сброс полей ввода и технического лога одной кнопкой (защита от «зависания» при пустых ответах)
-- 🕓 **История сессии** — последние 10 обращений с возможностью раскрытия
-- 📜 **Аудит-логирование** — каждое обращение пишется в `audit.log` (только анонимизированные данные)
-- 🧱 **Модульная OOP-архитектура** — чистое разделение UI / бизнес-логики / интеграций
+- 🧠 **Ответ клиенту** на основе базы знаний OCX
+- 💼 **Подсказка менеджеру** по допродажам, акциям и следующему шагу
+- 🔒 **152-ФЗ**: имена, телефоны, e-mail, адреса, СНИЛС, ИНН, паспорт,
+  дата рождения, карта и IP маскируются до отправки в LLM
+- 🛡 **Guardrails**: prompt injection, медицинские red flags, запрещённые
+  формулировки, дисклеймер
+- 🎛 **Два провайдера**: AITunnel (основной) + YandexGPT (fallback)
+- ⚡ **Streaming**: SSE для API и мгновенный отклик в UI
+- 💾 **Кэш**: Redis или in-process LRU с TTL и версионированным ключом
+- 🗄 **Аудит и обратная связь**: SQLite/PostgreSQL через SQLAlchemy
+- 🔑 **API-безопасность**: API key, admin key, rate limit, idempotency
+- 📚 **RAG-lite**: версионированная база знаний, лексический retrieval,
+  цитаты в ответе
+- 🧪 **Тесты**: unit/integration, lint, typecheck, CI
+- 🐳 **Docker Compose**: PostgreSQL + Redis + API + UI
 
 ---
 
 ## 🏗️ Архитектура
 
+```text
+[Streamlit UI]   [API clients]
+       \              /
+        [FastAPI /v1]
+             |
+    [ConsultationService]
+    /        |           \
+[Anonymizer] [RAG/KB]  [Cache]
+    |          |           |
+[PromptBuilder] [retriever] [Redis/LRU]
+    |
+[AIOrchestrator] → [AITunnel] / [YandexGPT]
+    |
+[Parser + Guardrails] → [SQLite/PostgreSQL audit & feedback]
 ```
+
+Подробности: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+### Структура проекта
+
+```text
 Health-Bot-AI/
-├── app.py                          # Streamlit entry point (UI)
-├── start.bat                       # Windows deploy Streamlit
-├── start_webhook.bat               # Windows deploy FastAPI webhook
+├── app.py                          # Streamlit entry point
+├── start.bat                       # Windows: UI
+├── start_webhook.bat               # Windows: API
+├── Dockerfile
+├── docker-compose.yml
 ├── requirements.txt
-├── .env.example                    # Пресет переменных окружения
-├── knowledge_base.txt              # База продуктов OCX
+├── requirements-dev.txt
+├── pyproject.toml                  # pytest / ruff / mypy
+├── .env.example
+├── knowledge_base.txt
 │
-├── config/                         # Конфигурация (settings + промты)
-│   ├── settings.py                 # Settings dataclass (env-driven)
-│   └── prompts.py                  # A/B-варианты system-prompt (standard/expert/warm)
+├── config/
+│   ├── settings.py                 # env-driven settings + validation
+│   └── prompts.py                  # A/B prompts + JSON contract
 │
 ├── src/
-│   ├── core/                       # Чистая доменная логика
-│   │   ├── anonymizer.py           # PIIAnonymizer (152-ФЗ)
-│   │   ├── knowledge_base.py       # KnowledgeBase loader
-│   │   ├── response_parser.py      # Парсер 2-блочного ответа LLM
-│   │   ├── response_cache.py       # In-memory LRU-кэш ответов
-│   │   └── audit_log.py            # JSON-аудит-лог (без ПД)
-│   │
-│   ├── ai/                         # Адаптеры AI-провайдеров
-│   │   ├── base.py                 # ABC: AIClient, ChatRequest, ChatResult
-│   │   ├── aitunnel_client.py      # AITunnel (OpenAI-compatible, +stream)
-│   │   ├── yandex_client.py        # YandexGPT (OpenAI-compatible, +stream)
-│   │   └── orchestrator.py         # Fallback-цепочка + stream()
-│   │
-│   ├── services/                   # Use-cases
-│   │   ├── consultation_service.py # Бизнес-логика + кэш + run() / stream_run()
-│   │   └── provider_factory.py     # Composition root / DI + реестр провайдеров
-│   │
-│   ├── api/                        # FastAPI webhook для интеграций
-│   │   └── webhook.py              # POST /consult, GET /health
-│   │
-│   └── ui/                         # Презентационный слой Streamlit
-│       ├── styles.py               # CSS + footer
-│       └── components.py           # Виджеты + селекторы + история
+│   ├── ai/                         # provider adapters + orchestrator
+│   ├── api/                        # FastAPI /v1
+│   ├── core/                       # anonymizer, safety, KB, cache, DB, audit
+│   ├── services/                   # use-cases + composition root
+│   └── ui/                         # Streamlit components/styles
 │
-└── tests/                          # Юнит-тесты
-    ├── test_anonymizer.py          # маскирование ПД
-    ├── test_response_parser.py     # парсинг 2-блочного ответа
-    ├── test_settings.py            # загрузка конфигурации
-    ├── test_consultation_service.py # кэш + гарантия отсутствия ПД в LLM-промпте
-    └── test_webhook.py             # Pydantic-схемы + /consult + /health
+├── tests/
+└── docs/
+    ├── ТЗ.md
+    ├── ARCHITECTURE.md
+    ├── API.md
+    ├── COMPLIANCE.md
+    ├── TEST_PLAN.md
+    └── requirements/               # исходный шаблон ТЗ (PDF)
 ```
-
-### Принципы
-
-- **Single Responsibility** — каждый модуль делает одну вещь
-- **Dependency Inversion** — UI зависит от абстракций (`AIClient`, `PIIAnonymizer`)
-- **Open/Closed** — добавление нового AI-провайдера = новый класс, реализующий `AIClient`
-- **Composition Root** — все зависимости собираются в `provider_factory.build_consultation_service()`
-- **Fail-safe анонимизация** — `build_system_prompt` физически не принимает `crm_context`
 
 ---
 
@@ -90,102 +95,155 @@ Health-Bot-AI/
 git clone https://github.com/markmus11012020-max/Health-Bot-AI.git
 cd Health-Bot-AI
 
-:: 2. Создать .env из пресета
+:: 2. Создать .env
 copy .env.example .env
 notepad .env       :: заполнить AITUNNEL_API_KEY, YANDEX_API_KEY, YANDEX_FOLDER_ID
 
-:: 3a. Streamlit UI (порт 8501) — для интерактивной работы менеджера
+:: 3. Установить зависимости
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements-dev.txt
+
+:: 4. Проверить
+python -m pytest -q
+python -m ruff check .
+python -m mypy src config app.py
+
+:: 5a. Streamlit UI (8501)
 start.bat
 
-:: 3b. FastAPI webhook (порт 8080) — для интеграции с CRM
+:: 5b. FastAPI API (8080)
 start_webhook.bat
 ```
 
 После запуска:
 
 - **UI:** <http://localhost:8501>
-- **Webhook docs:** <http://localhost:8080/docs>
+- **API docs:** <http://localhost:8080/docs>
 - **Health:** <http://localhost:8080/health>
+- **Ready:** <http://localhost:8080/ready>
 
-Пример вызова webhook:
-
-```bash
-curl -X POST http://localhost:8080/consult ^
-  -H "Content-Type: application/json" ^
-  -d "{\"crm_context\":\"Клиент: Мария, оформляет Детокс 4500р.\",\"client_message\":\"Сколько доставка в Самару?\"}"
-```
-
-Ответом:
-
-```json
-{
-  "client_answer": "Здравствуйте! ...",
-  "manager_tip": "Предложите Витамин-Буст со скидкой 20% ...",
-  "needs_upsell": true,
-  "provider": "AITunnel",
-  "model": "minimax-m3",
-  "cache_hit": false,
-  "response_chars": 542
-}
-```
-
----
-
-## 🐧 Быстрый старт (Linux / macOS)
+### Linux / macOS
 
 ```bash
 git clone https://github.com/markmus11012020-max/Health-Bot-AI.git
 cd Health-Bot-AI
 cp .env.example .env
-$EDITOR .env
-
 python3 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
-streamlit run app.py
+pip install -r requirements-dev.txt
+python -m streamlit run app.py
 ```
+
+### Docker Compose
+
+```bash
+# В .env обязательно задайте API_KEY и ADMIN_API_KEY
+docker compose up --build -d
+```
+
+Сервисы:
+
+| Сервис | Порт | Назначение |
+|---|---|---|
+| `api` | 8080 | FastAPI |
+| `ui` | 8501 | Streamlit |
+| `db` | 5432 | PostgreSQL 16 |
+| `redis` | 6379 | Redis 7 |
 
 ---
 
 ## ⚙️ Конфигурация
 
-Все настройки берутся из `.env` (см. `.env.example`):
+Все настройки берутся из `.env` (см. `.env.example`).
 
-| Переменная              | Назначение                          | По умолчанию                  |
-| ----------------------- | ----------------------------------- | ----------------------------- |
-| `AITUNNEL_API_KEY`      | API-ключ основного провайдера       | —                             |
-| `AITUNNEL_BASE_URL`     | Endpoint AITunnel                   | `https://api.aitunnel.ru/v1`  |
-| `AITUNNEL_MODEL`        | Модель AITunnel (на выбор: `minimax-m3`, Gemini, GPT) | `minimax-m3`     |
-| `YANDEX_GPT_URL`        | Endpoint YandexGPT (native REST)    | `https://llm.api.cloud.yandex.net/foundationModels/v1/completion` |
-| `YANDEX_API_KEY`        | API-ключ YandexGPT                  | —                             |
-| `YANDEX_IAM_TOKEN`      | IAM-токен (приоритет над API-ключом)| —                             |
-| `YANDEX_FOLDER_ID`      | Folder ID Yandex Cloud              | —                             |
-| `YANDEX_GPT_MODEL`      | Модель YandexGPT                    | `yandexgpt-lite`              |
-| `YANDEX_TIMEOUT_S`      | Таймаут YandexGPT (сек)             | `120`                         |
-| `TEMPERATURE`           | Температура генерации               | `0.2`                         |
-| `MAX_TOKENS`            | Лимит токенов                       | `800`                         |
-| `REQUEST_TIMEOUT`       | Таймаут HTTP-запроса (сек)          | `30`                          |
-| `MAX_RETRIES`           | Число ретраев                       | `2`                           |
-| `PROMPT_VARIANT`        | A/B-вариант промпта                 | `standard` (или `expert`/`warm`) |
-| `APP_TITLE` / `APP_ICON`| Заголовок и иконка интерфейса       | `Health-Bot-AI \| OCX` / 🏥   |
+| Переменная | Назначение | По умолчанию |
+|---|---|---|
+| `ENVIRONMENT` | `development` / `test` / `production` | `development` |
+| `APP_VERSION` | Версия приложения | `1.0.0` |
+| `LOG_LEVEL` | Уровень логов | `INFO` |
+| `AITUNNEL_API_KEY` | API-ключ AITunnel | — |
+| `AITUNNEL_BASE_URL` | Endpoint AITunnel | `https://api.aitunnel.ru/v1` |
+| `AITUNNEL_MODEL` | Модель AITunnel | `minimax-m3` |
+| `YANDEX_GPT_URL` | OpenAI-совместимый endpoint YandexGPT | `https://llm.api.cloud.yandex.net/v1` |
+| `YANDEX_API_KEY` | API-ключ YandexGPT | — |
+| `YANDEX_IAM_TOKEN` | IAM-токен (приоритет выше API-ключа) | — |
+| `YANDEX_FOLDER_ID` | Folder ID Yandex Cloud | — |
+| `YANDEX_GPT_MODEL` | Модель YandexGPT | `yandexgpt-lite` |
+| `YANDEX_TIMEOUT_S` | Таймаут YandexGPT | `120` |
+| `TEMPERATURE` | Температура генерации | `0.2` |
+| `MAX_TOKENS` | Лимит токенов | `800` |
+| `REQUEST_TIMEOUT` | Таймаут HTTP | `30` |
+| `MAX_RETRIES` | Число ретраев | `2` |
+| `ENABLE_FALLBACK` | Fallback между провайдерами | `true` |
+| `KB_PATH` | Путь к базе знаний | `knowledge_base.txt` |
+| `KB_TOP_K` | Число чанков в промпте | `3` |
+| `KB_MAX_CHARS` | Лимит контекста БЗ | `6000` |
+| `CACHE_MAXSIZE` | Размер LRU-кэша | `256` |
+| `CACHE_TTL_SECONDS` | TTL кэша | `86400` |
+| `REDIS_URL` | Redis для общего кэша | — |
+| `DATABASE_URL` | SQLite/PostgreSQL DSN | `sqlite:///data/health_bot.db` |
+| `API_KEY` | API-ключ (обязателен в production) | — |
+| `ADMIN_API_KEY` | Ключ админ-операций | — |
+| `RATE_LIMIT_REQUESTS` | Запросов на окно | `60` |
+| `RATE_LIMIT_WINDOW_SECONDS` | Окно rate limit | `60` |
+| `IDEMPOTENCY_TTL_SECONDS` | TTL Idempotency-Key | `3600` |
+| `GUARDRAILS_ENABLED` | Включить guardrails | `true` |
+| `PROMPT_VARIANT` | `standard` / `expert` / `warm` | `standard` |
+
+> В production обязательно задайте `API_KEY`, `ADMIN_API_KEY` и PostgreSQL.
+> `ENVIRONMENT=production` включает проверки `/ready`.
 
 ---
 
-## 🧪 Тесты
+## 🌐 API
+
+Полное описание: [`docs/API.md`](docs/API.md). OpenAPI: <http://localhost:8080/docs>.
+
+### `POST /v1/consult`
 
 ```bash
-python -m unittest discover tests -v
+curl -X POST http://localhost:8080/v1/consult ^
+  -H "Content-Type: application/json" ^
+  -H "X-API-Key: your-api-key" ^
+  -d "{\"crm_context\":\"Клиент: Мария, оформляет Детокс 4500 руб.\",\"client_message\":\"Сколько доставка в Самару?\",\"prompt_variant\":\"warm\",\"use_cache\":true}"
 ```
 
-Покрытие:
+Ответ:
 
-- `test_anonymizer.py` — маскирование имён / телефонов / email / адресов
-- `test_response_parser.py` — парсинг 2-блочного ответа LLM
-- `test_settings.py` — загрузка конфигурации и заморозка dataclass'а
-- `test_consultation_service.py` — **гарантия, что сырые ПД не уходят в LLM-промпт + кэш**
-- `test_webhook.py` — Pydantic-валидация, эндпоинты `/health` и `/consult`, обработка ошибок
+```json
+{
+  "request_id": "0f9f5e2a...",
+  "client_answer": "Здравствуйте! Доставка в Самару — 300 ₽...",
+  "manager_tip": "Предложите Витамин-Буст со скидкой 20%...",
+  "needs_upsell": true,
+  "citations": ["УСЛОВИЯ ДОСТАВКИ", "АКЦИИ И ДОПРОДАЖИ"],
+  "confidence": 0.88,
+  "safety_flags": [],
+  "provider": "AITunnel",
+  "model": "minimax-m3",
+  "cache_hit": false,
+  "response_chars": 542,
+  "usage": {"prompt_tokens": 1200, "completion_tokens": 180}
+}
+```
 
-25 тестов проходят.
+### `POST /v1/consult/stream`
+
+Возвращает `text/event-stream`: `meta` → `token` → `done` (или `error`).
+
+### Остальные эндпоинты
+
+| Метод | Путь | Назначение |
+|---|---|---|
+| `GET` | `/health` | liveness |
+| `GET` | `/ready` | readiness: БД, кэш, провайдеры |
+| `POST` | `/v1/consult` | обработка обращения |
+| `POST` | `/v1/consult/stream` | SSE-стриминг |
+| `POST` | `/v1/feedback` | оценка менеджера |
+| `POST` | `/v1/admin/cache/clear` | сброс кэша (admin key) |
+
+Старые `/consult` и `/consult/clear-cache` сохранены как алиасы.
 
 ---
 
@@ -193,101 +251,81 @@ python -m unittest discover tests -v
 
 `PIIAnonymizer` заменяет **до отправки** в LLM:
 
-- Имена → `[Клиент]`
-- Телефоны (все RU-форматы) → `[Телефон]`
-- E-mail → `[Email]`
-- Адреса → `[Адрес]`
+- имена → `[Клиент]`
+- телефоны → `[Телефон]`
+- e-mail → `[Email]`
+- адреса → `[Адрес]`
+- СНИЛС, ИНН, паспорт, дата рождения, карта, IP → соответствующие плейсхолдеры
 
-Анонимизация применяется к **обоим** полям (`crm_context` и `client_message`)
-перед формированием `system_prompt` и `user_message`. В LLM **никогда**
-не уходят сырые ФИО/телефоны/e-mail. Это зафиксировано тестом
-`tests/test_consultation_service.py`.
+Анонимизация применяется к **обоим** полям (`crm_context` и `client_message`).
+Соответствие плейсхолдеров исходным значениям не сохраняется.
 
-Сырые ПДн **никогда** не покидают оперативную память процесса.
+Дополнительно:
 
----
+- `SafetyGuard` блокирует явный prompt injection;
+- red flags (беременность, хронические заболевания, лекарства, аллергия,
+  острая боль, ребёнок) добавляют рекомендацию врача;
+- запрещённые медицинские формулировки смягчаются;
+- в ответ добавляется дисклеймер;
+- в аудит пишутся только метаданные и **количество** ПДн по категориям.
 
-## ➕ Добавление нового AI-провайдера
-
-```python
-# src/ai/my_provider.py
-from src.ai.base import AIClient, ChatRequest, ChatResult
-
-class MyProvider(AIClient):
-    name = "MyProvider"
-
-    def chat(self, request: ChatRequest) -> ChatResult:
-        ...
-
-    def stream(self, request: ChatRequest) -> Generator[str, None, None]:
-        # Опционально — для streaming-UI
-        ...
-
-# src/services/provider_factory.py
-from src.ai.my_provider import MyProvider
-
-PROVIDER_REGISTRY["my"] = MyProvider   # ← добавлено
-```
-
-Чтобы провайдер появился в сайдбаре — добавьте человекочитаемую метку в
-`_PROVIDER_LABELS` в `src/ui/components.py`. UI-логику самого селектора менять
-**не нужно**.
+Подробности: [`docs/COMPLIANCE.md`](docs/COMPLIANCE.md).
 
 ---
 
-## 🌐 Webhook API (для интеграции)
-
-`src/api/webhook.py` — FastAPI-приложение для интеграции с AmoCRM и другими CRM.
-
-### Эндпоинты
-
-| Метод  | Путь                | Назначение                                     |
-| ------ | ------------------- | ---------------------------------------------- |
-| GET    | `/health`           | health-check + состояние кэша/провайдеров       |
-| POST   | `/consult`          | Обработка обращения → 2 блока (client + tip)   |
-| POST   | `/consult/clear-cache` | Сброс кэша (полезно для тестов)             |
-
-### Схема запроса `POST /consult`
-
-```json
-{
-  "crm_context": "Клиент: Мария, +79271234567. Сделка: Детокс 4500р.",
-  "client_message": "Сколько доставка в Самару? И будет ли слабость?",
-  "provider": "aitunnel",            // опционально: aitunnel | yandex
-  "prompt_variant": "warm",           // опционально: standard | expert | warm
-  "use_cache": true                   // опционально
-}
-```
-
-### Схема ответа `200 OK`
-
-```json
-{
-  "client_answer": "Здравствуйте! ...",
-  "manager_tip": "Предложите Витамин-Буст со скидкой 20% ...",
-  "needs_upsell": true,
-  "provider": "AITunnel",
-  "model": "minimax-m3",
-  "cache_hit": false,
-  "response_chars": 542
-}
-```
-
-### Запуск
+## 🧪 Тесты и качество
 
 ```bash
-# Локально
-uvicorn src.api.webhook:app --host 0.0.0.0 --port 8080
-
-# Windows
-start_webhook.bat
+python -m pytest -q
+python -m pytest --cov=src --cov=config --cov-report=term-missing
+python -m ruff check .
+python -m mypy src config app.py
 ```
 
-Документация OpenAPI: <http://localhost:8080/docs>.
+Покрытие:
+
+- анонимизация ПДн и отсутствие утечек в LLM-промпт;
+- парсинг JSON и legacy two-block;
+- guardrails: injection, red flags, medical claims;
+- версионирование и retrieval базы знаний;
+- TTL/LRU-кэш и версионированные ключи;
+- fallback и streaming без смешивания провайдеров;
+- SQLite-аудит и обратная связь;
+- API: auth, rate limit, idempotency, SSE, feedback, readiness.
+
+---
+
+## 🐳 Production-заметки
+
+- Для нескольких воркеров задайте `REDIS_URL` — кэш станет общим.
+- Для PostgreSQL задайте `DATABASE_URL=postgresql+psycopg://...`.
+- Rate limit и idempotency в текущей версии in-process; для multi-worker
+  замените на Redis (интерфейсы `RateLimiter` и `IdempotencyStore` готовы).
+- TLS и Nginx/WAF — на уровне инфраструктуры.
+- Секреты храните в Vault/KMS, не в git.
+- Перед пилотом: DPIA, реестр субпроцессоров, пентест, нагрузочные тесты.
+
+### Ограничения текущей версии
+
+- AmoCRM-интеграция — следующий этап (сейчас webhook).
+- RAG использует лексический retrieval; pgvector/embeddings — R1.
+- Нет встроенной админки и RBAC; admin-операции защищены ключом.
+- Нет multi-turn памяти; `conversation_id` зарезервирован.
+
+---
+
+## 📚 Документация
+
+- [Техническое задание](docs/ТЗ.md)
+- [Архитектура](docs/ARCHITECTURE.md)
+- [API](docs/API.md)
+- [Compliance / 152-ФЗ](docs/COMPLIANCE.md)
+- [Программа испытаний](docs/TEST_PLAN.md)
+- [Changelog](docs/CHANGELOG.md)
 
 ---
 
 ## 📜 Лицензия
 
 MIT © 2026 OCX / Health-Bot-AI Contributors.
-Демонстрационный MVP для собеседования.
+Демонстрационный production MVP.

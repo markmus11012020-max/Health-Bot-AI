@@ -99,6 +99,10 @@ Health-Bot-AI — B2B-ассистент менеджера продаж. Сис
 `sqlite:///data/health_bot.db`. Для PostgreSQL:
 `postgresql+psycopg://user:pass@host:5432/health_bot`.
 
+Схема создаётся через `Base.metadata.create_all` на старте. Для промышленного
+контура рекомендуется добавить Alembic-миграции и отдельный job для миграций
+до запуска приложения.
+
 ## 6. Безопасность
 
 - ПДн анонимизируются до вызова LLM.

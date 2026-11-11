@@ -55,6 +55,38 @@ class ResponseParserTests(unittest.TestCase):
         self.assertEqual(parsed.client_answer, "Ответ")
         self.assertEqual(parsed.manager_tip, "Совет")
 
+    def test_parses_json_fenced_response(self) -> None:
+        raw = """```json
+        {
+          "client_answer": "Доставка 300 руб.",
+          "manager_tip": "Предложите Витамин-Буст.",
+          "needs_upsell": true,
+          "citations": ["Условия доставки"],
+          "confidence": 0.91
+        }
+        ```"""
+        parsed = self.parser.parse(raw)
+        self.assertEqual(parsed.client_answer, "Доставка 300 руб.")
+        self.assertTrue(parsed.needs_upsell)
+        self.assertEqual(parsed.citations, ("Условия доставки",))
+        self.assertAlmostEqual(parsed.confidence, 0.91)
+
+    def test_json_false_upsell(self) -> None:
+        parsed = self.parser.parse(
+            '{"client_answer":"ok","manager_tip":"Допродажа не требуется",'
+            '"needs_upsell":false}'
+        )
+        self.assertFalse(parsed.needs_upsell)
+
+    def test_to_text_round_trip(self) -> None:
+        parsed = self.parser.parse(
+            '{"client_answer":"Ответ","manager_tip":"Совет","needs_upsell":true}'
+        )
+        text = parsed.to_text()
+        self.assertIn("=== БЛОК ДЛЯ КЛИЕНТА ===", text)
+        self.assertIn("Ответ", text)
+        self.assertIn("Совет", text)
+
 
 if __name__ == "__main__":
     unittest.main()

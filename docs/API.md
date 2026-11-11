@@ -116,6 +116,9 @@ data: {"cache_hit":false,"response_chars":542}
 }
 ```
 
+`comment` анонимизируется перед сохранением: в БД не должны попадать сырые
+ПДн.
+
 ## GET /health
 
 Liveness probe.
